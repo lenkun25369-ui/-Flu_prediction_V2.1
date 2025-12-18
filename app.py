@@ -19,7 +19,7 @@ obs   = qp.get("obs")
 #     沒資料 → None（完全不影響手動輸入）
 # =================================================
 def load_patient_data_from_fhir(token, pid, fhir, obs):
-    if not (token and pid and fhir and obs):
+    if not (token and obs):
         return None
 
     headers = {
@@ -36,28 +36,72 @@ def load_patient_data_from_fhir(token, pid, fhir, obs):
         return None
 
     for c in o.get("component", []):
-        code = c.get("code", {}).get("coding", [{}])[0].get("code")
+        text = c.get("code", {}).get("text", "").strip()
 
-        # ----------- 對應你原本欄位（最小對應）-----------
-        if code == "8310-5":  # Body temperature
+        # -------- Numeric --------
+        if text == "Temperature (°C)":
             patient_data["temp"] = c["valueQuantity"]["value"]
 
-        elif code == "9279-1":  # Respiratory rate
+        elif text == "Height (CM)":
+            patient_data["height"] = c["valueQuantity"]["value"]
+
+        elif text == "Weight (KG)":
+            patient_data["weight"] = c["valueQuantity"]["value"]
+
+        elif text == "Pulse":
+            patient_data["pulse"] = c["valueQuantity"]["value"]
+
+        elif text == "Respiratory rate":
             patient_data["rr"] = c["valueQuantity"]["value"]
 
-        elif code == "8480-6":  # Systolic BP
+        elif text == "Systolic BP":
             patient_data["sbp"] = c["valueQuantity"]["value"]
 
-        elif code == "59408-5":  # Oxygen saturation
+        elif text == "Oxygen saturation (%)":
             patient_data["o2s"] = c["valueQuantity"]["value"]
 
-        elif code == "pulse":  # 非標準（保留彈性）
-            patient_data["pulse"] = c.get("valueQuantity", {}).get("value")
+        elif text == "Season (1–4)":
+            patient_data["season"] = c.get("valueInteger")
 
-        elif code == "cough":
-            patient_data["cough"] = "Yes" if c.get("valueInteger", 0) == 1 else "No"
+        elif text == "Week of Year":
+            patient_data["WOS"] = c.get("valueInteger")
+
+        elif text == "Days of illness":
+            patient_data["DOI"] = c.get("valueInteger")
+
+        # -------- Binary (0/1 → No/Yes) --------
+        elif text == "Influenza vaccine this year?":
+            patient_data["fluvaccine"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "Exposure to confirmed influenza?":
+            patient_data["exposehuman"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "Recent travel?":
+            patient_data["travel"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "New or increased cough?":
+            patient_data["cough"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "Cough with sputum?":
+            patient_data["coughsputum"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "Sore throat?":
+            patient_data["sorethroat"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "Rhinorrhea / nasal congestion?":
+            patient_data["rhinorrhea"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "Sinus pain?":
+            patient_data["sinuspain"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "Influenza antivirals in past 30 days?":
+            patient_data["medhistav"] = "Yes" if c.get("valueInteger") == 1 else "No"
+
+        elif text == "Chronic lung disease?":
+            patient_data["pastmedchronlundis"] = "Yes" if c.get("valueInteger") == 1 else "No"
 
     return patient_data if patient_data else None
+
 
 
 # 🔴 原本寫死的 patient_data
