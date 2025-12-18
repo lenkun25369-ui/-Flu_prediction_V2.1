@@ -3,7 +3,11 @@ import requests
 from predict_core import predict_flu_probability
 
 st.title("Flu Prediction Model by XGBoost Algorithm")
+qp = st.experimental_get_query_params()
 
+# 抽出參數
+token_q = qp.get("token", [""])[0]
+obs_q   = qp.get("obs", [""])[0]
 # =========================================
 # 1️⃣ 讀 FHIR Observation
 # =========================================
@@ -64,8 +68,8 @@ def load_patient_data_from_fhir(token, obs_url):
 # =========================================
 # 2️⃣ 接收 token / obs_url 等（你可從 URL 或手動填）
 # =========================================
-token = st.text_input("Token", value="")
-obs_url = st.text_input("Observation URL", value="")
+token = st.text_input("Token", value=token_q)
+obs_url = st.text_input("Observation URL", value=obs_q)
 
 patient_data = {}
 if token and obs_url:
