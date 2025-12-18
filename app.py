@@ -4,145 +4,110 @@ from predict_core import predict_flu_probability
 
 st.title("Flu Prediction Model by XGBoost Algorithm")
 
-# =================================================
-# 0️⃣ 從 URL 接收 SMART on FHIR 參數（最小新增）
-# =================================================
-qp = st.query_params
-
-token = qp.get("token")
-pid   = qp.get("pid")
-fhir  = qp.get("fhir")
-obs   = qp.get("obs")
-
-# =================================================
-# 0️⃣ 病人資料：從 FHIR Observation 自動產生
-#     沒資料 → None（完全不影響手動輸入）
-# =================================================
-def load_patient_data_from_fhir(token, pid, fhir, obs):
-    if not (token and obs):
-        return None
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/fhir+json"
-    }
-
+# =========================================
+# 1️⃣ 讀 FHIR Observation
+# =========================================
+def load_patient_data_from_fhir(token, obs_url):
     patient_data = {}
-
     try:
-        r = requests.get(obs, headers=headers, verify=False, timeout=10)
+        r = requests.get(obs_url, headers={"Authorization": f"Bearer {token}"}, verify=False, timeout=10)
         o = r.json()
     except Exception:
         return None
 
     for c in o.get("component", []):
         text = c.get("code", {}).get("text", "").strip()
-
-        # -------- Numeric --------
+        # Numeric
         if text == "Temperature (°C)":
             patient_data["temp"] = c["valueQuantity"]["value"]
-
         elif text == "Height (CM)":
             patient_data["height"] = c["valueQuantity"]["value"]
-
         elif text == "Weight (KG)":
             patient_data["weight"] = c["valueQuantity"]["value"]
-
         elif text == "Pulse":
             patient_data["pulse"] = c["valueQuantity"]["value"]
-
         elif text == "Respiratory rate":
             patient_data["rr"] = c["valueQuantity"]["value"]
-
         elif text == "Systolic BP":
             patient_data["sbp"] = c["valueQuantity"]["value"]
-
         elif text == "Oxygen saturation (%)":
             patient_data["o2s"] = c["valueQuantity"]["value"]
-
         elif text == "Season (1–4)":
             patient_data["season"] = c.get("valueInteger")
-
         elif text == "Week of Year":
             patient_data["WOS"] = c.get("valueInteger")
-
         elif text == "Days of illness":
             patient_data["DOI"] = c.get("valueInteger")
-
-        # -------- Binary (0/1 → No/Yes) --------
+        # Binary
         elif text == "Influenza vaccine this year?":
             patient_data["fluvaccine"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "Exposure to confirmed influenza?":
             patient_data["exposehuman"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "Recent travel?":
             patient_data["travel"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "New or increased cough?":
             patient_data["cough"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "Cough with sputum?":
             patient_data["coughsputum"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "Sore throat?":
             patient_data["sorethroat"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "Rhinorrhea / nasal congestion?":
             patient_data["rhinorrhea"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "Sinus pain?":
             patient_data["sinuspain"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "Influenza antivirals in past 30 days?":
             patient_data["medhistav"] = "Yes" if c.get("valueInteger") == 1 else "No"
-
         elif text == "Chronic lung disease?":
             patient_data["pastmedchronlundis"] = "Yes" if c.get("valueInteger") == 1 else "No"
+    return patient_data
 
-    return patient_data if patient_data else None
+# =========================================
+# 2️⃣ 接收 token / obs_url 等（你可從 URL 或手動填）
+# =========================================
+token = st.text_input("Token", value="")
+obs_url = st.text_input("Observation URL", value="")
 
+patient_data = {}
+if token and obs_url:
+    patient_data = load_patient_data_from_fhir(token, obs_url)
 
+    # =========================================
+    # 2a️⃣ 顯示 FHIR 原始資料 / patient_data (可收折)
+    # =========================================
+    with st.expander("查看抓到的病患資料（收折）", expanded=False):
+        st.json(patient_data)
 
-# 🔴 原本寫死的 patient_data
-# patient_data = { ... }
+    # =========================================
+    # 2b️⃣ 將抓到的值放入 session_state，強制更新 widget 預設值
+    # =========================================
+    for k, v in patient_data.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-# ✅ 改成這一行（唯一邏輯改動）
-patient_data = load_patient_data_from_fhir(token, pid, fhir, obs)
-
-# =================================================
-# 1️⃣ Helper（完全不改）
-# =================================================
+# =========================================
+# 3️⃣ helper（改成讀 session_state）
+# =========================================
 def num_input(label, minv, maxv, default, step=1.0, key=None):
-    value = default
-    if patient_data and key in patient_data:
-        value = patient_data[key]
-
-    # 🔒 關鍵：型別對齊（Streamlit 要求）
+    value = st.session_state.get(key, default)
     if isinstance(minv, float):
         value = float(value)
     else:
         value = int(value)
-
-    return st.number_input(label, minv, maxv, value, step=step)
+    return st.number_input(label, minv, maxv, value, step=step, key=key)
 
 def yn(label, key):
     options = ["No", "Yes"]
     idx = 0
+    v = st.session_state.get(key, "No")
+    if isinstance(v, int):
+        idx = 1 if v == 1 else 0
+    elif isinstance(v, str):
+        idx = options.index(v)
+    return st.selectbox(label, options, index=idx, key=key)
 
-    if patient_data and key in patient_data:
-        v = patient_data[key]
-
-        if isinstance(v, int):
-            idx = 1 if v == 1 else 0
-        elif isinstance(v, str):
-            idx = options.index(v)
-
-    return st.selectbox(label, options, index=idx)
-
-# =================================================
-# 2️⃣ Numeric inputs（完全不改）
-# =================================================
+# =========================================
+# 4️⃣ Streamlit UI
+# =========================================
 temp = num_input("Temperature (°C)", 30.0, 42.0, 37.3, 1.0, "temp")
 height = num_input("Height (CM)", 1.0, 400.0, 160.0, 0.5, "height")
 weight = num_input("Weight (KG)", 1.0, 400.0, 60.0, 0.5, "weight")
@@ -154,9 +119,6 @@ sbp = num_input("Systolic BP", 50, 250, 90, 1, "sbp")
 o2s = num_input("Oxygen saturation (%)", 1, 100, 100, 1, "o2s")
 pulse = num_input("Pulse", 50, 180, 100, 1, "pulse")
 
-# =================================================
-# 3️⃣ Binary inputs（完全不改）
-# =================================================
 fluvaccine = yn("Influenza vaccine this year?", "fluvaccine")
 cough = yn("New or increased cough?", "cough")
 coughsputum = yn("Cough with sputum?", "coughsputum")
@@ -168,9 +130,9 @@ travel = yn("Recent travel?", "travel")
 medhistav = yn("Influenza antivirals in past 30 days?", "medhistav")
 pastmedchronlundis = yn("Chronic lung disease?", "pastmedchronlundis")
 
-# =================================================
-# 4️⃣ Prediction（完全不動）
-# =================================================
+# =========================================
+# 5️⃣ Prediction
+# =========================================
 if st.button("Predict"):
     prob = predict_flu_probability(
         temp, height, weight, DOI, WOS, season,
@@ -179,5 +141,4 @@ if st.button("Predict"):
         rhinorrhea, sinuspain, exposehuman, travel,
         medhistav, pastmedchronlundis
     )
-
     st.metric("Predicted probability (%)", f"{prob:.2f}")
