@@ -3,7 +3,7 @@ import requests
 from predict_core import predict_flu_probability
 
 st.title("Flu Prediction Model by XGBoost Algorithm")
-qp = st.query_params()
+qp = st.experimental_get_query_params()
 
 # 抽出參數
 token_q = qp.get("token", [""])[0]
